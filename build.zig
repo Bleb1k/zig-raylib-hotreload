@@ -1,9 +1,9 @@
 const std = @import("std");
 
 pub const Options = struct {
-    hot_reload: bool = false,
-    game_only: bool = false,
+    hot_reload: HotReload = .off,
 };
+pub const HotReload = enum { off, on, lib_only };
 
 // Although this function looks imperative, note that its job is to
 // declaratively construct a build graph that will be executed by an external
@@ -14,9 +14,18 @@ pub fn build(b: *std.Build) void {
 
     const defaults = Options{};
     const options = Options{
-        .hot_reload = b.option(bool, "hot-reload", "Compile with hot reload") orelse defaults.hot_reload,
-        .game_only = b.option(bool, "game-only", "Only build the game shared library") orelse defaults.game_only,
+        .hot_reload = b.option(HotReload, "hot-reload", "Compile with hot reload") orelse defaults.hot_reload,
     };
+
+    const raylib_dep = b.dependency("raylib-zig", .{
+        .target = target,
+        .optimize = optimize,
+        .shared = options.hot_reload != .off,
+    });
+
+    const raylib = raylib_dep.module("raylib"); // main raylib module
+    const raygui = raylib_dep.module("raygui"); // raygui module
+    const raylib_artifact = raylib_dep.artifact("raylib"); // raylib C library
 
     const lib_args = .{
         .name = "game",
@@ -24,23 +33,17 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     };
-    const lib = if (options.hot_reload) b.addSharedLibrary(lib_args) else b.addStaticLibrary(lib_args);
-
-    const raylib_dep = b.dependency("raylib-zig", .{
-        .target = target,
-        .optimize = optimize,
-        .shared = options.hot_reload,
-    });
-
-    const raylib = raylib_dep.module("raylib"); // main raylib module
-    const raygui = raylib_dep.module("raygui"); // raygui module
-    const raylib_artifact = raylib_dep.artifact("raylib"); // raylib C library
+    const lib = if (options.hot_reload == .off) b.addStaticLibrary(lib_args) else b.addSharedLibrary(lib_args);
 
     lib.linkLibrary(raylib_artifact);
     lib.root_module.addImport("raylib", raylib);
     lib.root_module.addImport("raygui", raygui);
 
     b.installArtifact(lib);
+
+    if (options.hot_reload == .lib_only) {
+        return;
+    }
 
     // const lib_unit_tests = b.addTest(.{
     //     .root_source_file = b.path("src/game.zig"),
@@ -50,30 +53,28 @@ pub fn build(b: *std.Build) void {
 
     // const run_lib_unit_tests = b.addRunArtifact(lib_unit_tests);
 
-    if (!options.game_only) {
-        const exe = b.addExecutable(.{
-            .name = "exeFile",
-            .root_source_file = b.path(if (options.hot_reload) "src/mainHR.zig" else "src/main.zig"),
-            .target = target,
-            .optimize = optimize,
-        });
+    const exe = b.addExecutable(.{
+        .name = "exeFile",
+        .root_source_file = b.path(if (options.hot_reload == .on) "src/mainHR.zig" else "src/main.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
 
-        exe.linkLibrary(raylib_artifact);
-        exe.root_module.addImport("raylib", raylib);
-        exe.root_module.addImport("raygui", raygui);
+    exe.linkLibrary(raylib_artifact);
+    exe.root_module.addImport("raylib", raylib);
+    exe.root_module.addImport("raygui", raygui);
 
-        b.installArtifact(exe);
+    b.installArtifact(exe);
 
-        const run_cmd = b.addRunArtifact(exe);
-        run_cmd.step.dependOn(b.getInstallStep());
+    const run_cmd = b.addRunArtifact(exe);
+    run_cmd.step.dependOn(b.getInstallStep());
 
-        if (b.args) |args| {
-            run_cmd.addArgs(args);
-        }
-
-        const run_step = b.step("run", "Run the app");
-        run_step.dependOn(&run_cmd.step);
+    if (b.args) |args| {
+        run_cmd.addArgs(args);
     }
+
+    const run_step = b.step("run", "Run the app");
+    run_step.dependOn(&run_cmd.step);
 
     // const exe_unit_tests = b.addTest(.{
     //     .root_source_file = b.path(if (options.hot_reload) "src/mainHR.zig" else "src/main.zig"),

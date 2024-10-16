@@ -9,15 +9,19 @@ var game_tick: *const fn (GameStatePtr) void = undefined;
 var game_draw: *const fn (GameStatePtr) void = undefined;
 
 pub fn main() !void {
-    loadGameLib() catch @panic("Failed to load game.dll");
+    recompileGameLib() catch
+        std.debug.print("Failed to recompile game.dll\n", .{});
+    loadGameLib() catch
+        @panic("Failed to load game.dll");
     const game_state = game_init();
     while (!rl.windowShouldClose()) {
         if (rl.isKeyPressed(.key_f5)) {
             unloadGameLib() catch unreachable;
-            recompileGameLib() catch {
+            recompileGameLib() catch
                 std.debug.print("Failed to recompile game.dll\n", .{});
-            };
-            loadGameLib() catch @panic("Failed to load game.dll");
+            loadGameLib() catch
+                @panic("Failed to load game.dll");
+            std.log.info("Reloading game", .{});
             game_reload(game_state);
         }
         game_tick(game_state);
@@ -40,7 +44,7 @@ fn loadGameLib() !void {
     game_reload = dyn_lib.lookup(@TypeOf(game_reload), "reload") orelse return error.LookupFail;
     game_tick = dyn_lib.lookup(@TypeOf(game_tick), "update") orelse return error.LookupFail;
     game_draw = dyn_lib.lookup(@TypeOf(game_draw), "draw") orelse return error.LookupFail;
-    std.debug.print("Loaded game.so\n", .{});
+    std.log.info("Loaded game.so", .{});
 }
 
 fn unloadGameLib() !void {
@@ -59,8 +63,7 @@ fn recompileGameLib() !void {
     const process_args = [_][]const u8{
         "zig",
         "build",
-        "-Dgame-only=true", // This '=true' is important!
-        "-Dhot-reload=true", // This '=true' is important!
+        "-Dhot-reload=lib_only",
         "--search-prefix",
         std.fs.cwd().realpathAlloc(allocator, "zig-out") catch unreachable,
     };

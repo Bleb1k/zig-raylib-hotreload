@@ -8,6 +8,7 @@ pub fn main() !void {
     const game_state = game.init();
     while (!rl.windowShouldClose()) {
         if (rl.isKeyPressed(.key_f5)) {
+            std.log.info("Reloading game", .{});
             game.reload(game_state);
         }
         game.update(game_state);
